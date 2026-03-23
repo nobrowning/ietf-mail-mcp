@@ -83,7 +83,10 @@ async def _fetch_email_list(
         effective_start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
     url = f"{BASE_URL}/arch/browse/{list_name}/?"
-    resp = await client.get(url)
+    try:
+        resp = await client.get(url)
+    except httpx.HTTPError:
+        return []
     if resp.status_code != 200:
         return []
 
@@ -114,7 +117,10 @@ async def _fetch_email_list(
             f"&referenceid={last_id}"
             f"&direction=next"
         )
-        resp = await client.get(ajax_url)
+        try:
+            resp = await client.get(ajax_url)
+        except httpx.HTTPError:
+            break
         if resp.status_code != 200:
             break
 
@@ -141,7 +147,10 @@ async def _fetch_email_list(
 async def _fetch_email_detail(client: httpx.AsyncClient, msg_id: str) -> dict:
     """Fetch a single email's detail. Returns a dict."""
     ajax_url = f"{BASE_URL}/arch/ajax/msg/?id={msg_id}"
-    resp = await client.get(ajax_url)
+    try:
+        resp = await client.get(ajax_url)
+    except httpx.HTTPError as e:
+        return {"msg_id": msg_id, "error": f"网络错误: {type(e).__name__}"}
     if resp.status_code != 200:
         return {"msg_id": msg_id, "error": f"HTTP {resp.status_code}"}
 
