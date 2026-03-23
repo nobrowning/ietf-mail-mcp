@@ -3,7 +3,9 @@
 Provides tools to browse and read emails from https://mailarchive.ietf.org
 """
 
-import asyncio
+import sys
+
+import anyio
 from datetime import datetime, timedelta
 
 import httpx
@@ -258,14 +260,17 @@ async def fetch_all_email_details(
             return f"No emails found in list '{list_name}' for the given criteria."
 
         # Step 2: Concurrently fetch all details with semaphore
-        sem = asyncio.Semaphore(CONCURRENCY)
+        # 使用 anyio 结构化并发，确保任务在 MCP 服务器的任务组内被正确管理
+        sem = anyio.Semaphore(CONCURRENCY)
+        details: list[dict] = [{}] * len(email_list)
 
-        async def _fetch_with_sem(msg_id: str) -> dict:
+        async def _fetch_with_sem(index: int, msg_id: str) -> None:
             async with sem:
-                return await _fetch_email_detail(client, msg_id)
+                details[index] = await _fetch_email_detail(client, msg_id)
 
-        tasks = [_fetch_with_sem(msg["id"]) for msg in email_list]
-        details = await asyncio.gather(*tasks)
+        async with anyio.create_task_group() as tg:
+            for i, msg in enumerate(email_list):
+                tg.start_soon(_fetch_with_sem, i, msg["id"])
 
     # Step 3: Format output
     date_hint = ""
@@ -284,4 +289,8 @@ async def fetch_all_email_details(
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    try:
+        mcp.run(transport="stdio")
+    except* anyio.ClosedResourceError:
+        # 客户端已断开连接，正常退出
+        sys.exit(0)
