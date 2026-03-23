@@ -21,6 +21,19 @@ HEADERS = {
 }
 PAGE_SIZE = 20
 CONCURRENCY = 10  # max concurrent detail requests
+MAX_RETRIES = 3  # 网络超时最大重试次数
+
+
+async def _get_with_retry(client: httpx.AsyncClient, url: str) -> httpx.Response:
+    """发送 GET 请求，遇到超时/连接错误时自动重试，最多 MAX_RETRIES 次。"""
+    for attempt in range(MAX_RETRIES):
+        try:
+            return await client.get(url)
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError) as e:
+            if attempt < MAX_RETRIES - 1:
+                await anyio.sleep(1 * (attempt + 1))
+                continue
+            raise e
 
 
 def _parse_message_rows(soup: BeautifulSoup) -> list[dict]:
@@ -84,7 +97,7 @@ async def _fetch_email_list(
 
     url = f"{BASE_URL}/arch/browse/{list_name}/?"
     try:
-        resp = await client.get(url)
+        resp = await _get_with_retry(client, url)
     except httpx.HTTPError:
         return []
     if resp.status_code != 200:
@@ -118,7 +131,7 @@ async def _fetch_email_list(
             f"&direction=next"
         )
         try:
-            resp = await client.get(ajax_url)
+            resp = await _get_with_retry(client, ajax_url)
         except httpx.HTTPError:
             break
         if resp.status_code != 200:
@@ -148,9 +161,9 @@ async def _fetch_email_detail(client: httpx.AsyncClient, msg_id: str) -> dict:
     """Fetch a single email's detail. Returns a dict."""
     ajax_url = f"{BASE_URL}/arch/ajax/msg/?id={msg_id}"
     try:
-        resp = await client.get(ajax_url)
+        resp = await _get_with_retry(client, ajax_url)
     except httpx.HTTPError as e:
-        return {"msg_id": msg_id, "error": f"网络错误: {type(e).__name__}"}
+        return {"msg_id": msg_id, "error": f"网络错误（重试{MAX_RETRIES}次后失败）: {type(e).__name__}"}
     if resp.status_code != 200:
         return {"msg_id": msg_id, "error": f"HTTP {resp.status_code}"}
 
