@@ -284,7 +284,7 @@ async def fetch_all_email_details(
         # Step 2: Concurrently fetch all details with semaphore
         # 使用 anyio 结构化并发，确保任务在 MCP 服务器的任务组内被正确管理
         sem = anyio.Semaphore(CONCURRENCY)
-        details: list[dict] = [{}] * len(email_list)
+        details: list[dict] = [{} for _ in range(len(email_list))]
 
         async def _fetch_with_sem(index: int, msg_id: str) -> None:
             async with sem:
